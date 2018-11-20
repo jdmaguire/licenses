@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -17,13 +18,22 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/pmezard/licenses/assets"
+	"github.com/jdmaguire/licenses/assets"
 )
 
 type Template struct {
 	Title    string         `json:"title"`
 	Nickname string         `json:"nickname,omitempty"`
 	Words    map[string]int `json:"-"`
+}
+
+type DepStatus struct {
+	ProjectRoot  string `json:"ProjectRoot"`
+	Constraint   string `json:"Constraint"`
+	Version      string `json:"Version"`
+	Revision     string `json:"Revision"`
+	Latest       string `json:"Latest"`
+	PackageCount int    `json:"PackageCount"`
 }
 
 func parseTemplate(content string) (*Template, error) {
@@ -375,13 +385,86 @@ func findLicense(info *PkgInfo) (string, error) {
 }
 
 type License struct {
-	Package      string    `json:"package"`
-	Score        float64   `json:"score"`
-	Template     *Template `json:"license,omitempty"`
-	Path         string    `json:"path,omitempty"`
-	Err          string    `json:"error,omitempty"`
-	ExtraWords   []string  `json:"extra_words,omitempty"`
-	MissingWords []string  `json:"missing_words,omitempty"`
+	Package      string     `json:"package"`
+	Score        float64    `json:"score"`
+	Template     *Template  `json:"license,omitempty"`
+	Path         string     `json:"path,omitempty"`
+	Err          string     `json:"error,omitempty"`
+	ExtraWords   []string   `json:"extra_words,omitempty"`
+	MissingWords []string   `json:"missing_words,omitempty"`
+	Versioning   *DepStatus `json:"versioning,omitempty"`
+}
+
+func decorateWithVersionInfo(licenses []License, gopath string, pkgs []string) ([]License, error) {
+	versions, err := loadVersionInfo(gopath, pkgs)
+	if err != nil {
+		return nil, err
+	}
+
+	var res []License
+	//iterate over license
+	for _, license := range licenses {
+		//iterate over version infos
+		found := 0
+		for _, versionInfo := range versions {
+			//see if this is the version info we need
+			if strings.Contains(license.Package, versionInfo.ProjectRoot) {
+				if found > 0 {
+					fmt.Fprintf(os.Stderr, "Found two conflicting license versions for %v. %v & %v\n", license.Package, license.Versioning, versionInfo)
+					if found < len(versionInfo.ProjectRoot) {
+						license.Versioning = &versionInfo
+					}
+				} else {
+					license.Versioning = &versionInfo
+				}
+				found = len(versionInfo.ProjectRoot)
+			}
+		}
+
+		res = append(res, license)
+	}
+
+	return res, nil
+}
+
+func loadVersionInfo(gopath string, pkgs []string) ([]DepStatus, error) {
+	if !isCommandAvailable("dep") {
+		return nil, errors.New("dep: binary not on path")
+	}
+	var (
+		out       []byte
+		err       error
+		depStatus []DepStatus
+		pkgStatus []DepStatus
+	)
+	args := []string{"status", "-json"}
+	for _, pkg := range pkgs {
+		dir := os.Getenv("GOPATH")
+		if len(dir) > 0 {
+			dir = dir + "/src/"
+		}
+		dir = dir + pkg
+		args = append(args, pkgs...)
+		cmd := exec.Command("dep", args...)
+		cmd.Env = fixEnv(gopath)
+		cmd.Dir = dir
+		out, err = cmd.CombinedOutput()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "dep %s failed with:\n%s\n",
+				strings.Join(args, " "), string(out))
+			return nil, err
+		}
+
+		err = json.Unmarshal([]byte(out), &pkgStatus)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "There was an error parsing dep status JSON: ", err)
+			return nil, err
+		}
+
+		depStatus = append(depStatus, pkgStatus...)
+	}
+
+	return removeDuplicates(depStatus), nil
 }
 
 func listLicenses(gopath string, pkgs []string) ([]License, error) {
@@ -578,6 +661,10 @@ func printLicenses() error {
 	if err != nil {
 		return err
 	}
+	if err != nil {
+		return err
+	}
+
 	if !*all {
 		licenses, err = groupLicenses(licenses)
 		if err != nil {
@@ -589,6 +676,8 @@ func printLicenses() error {
 		confidence: 0.9,
 		words:      *words,
 	}
+	licenses, err = decorateWithVersionInfo(licenses, "", pkgs)
+
 	return formatter(licenses, opts)
 }
 
@@ -670,6 +759,28 @@ func trimWords(licenses []License) {
 		license.ExtraWords = nil
 		license.MissingWords = nil
 	}
+}
+
+func isCommandAvailable(name string) bool {
+	cmd := exec.Command("command", "-v", name)
+	if err := cmd.Run(); err != nil {
+		return false
+	}
+	return true
+}
+
+func removeDuplicates(reqs []DepStatus) []DepStatus {
+	reqSet := map[string]bool{}
+	var result []DepStatus
+
+	for _, req := range reqs {
+		concatenatedName := fmt.Sprintf("%v", req)
+		if _, ok := reqSet[concatenatedName]; !ok {
+			result = append(result, req)
+		}
+		reqSet[concatenatedName] = true
+	}
+	return result
 }
 
 func main() {
