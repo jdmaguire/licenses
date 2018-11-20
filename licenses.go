@@ -28,12 +28,12 @@ type Template struct {
 }
 
 type DepStatus struct {
-	ProjectRoot  string `json:"ProjectRoot"`
-	Constraint   string `json:"Constraint"`
-	Version      string `json:"Version"`
-	Revision     string `json:"Revision"`
-	Latest       string `json:"Latest"`
-	PackageCount int    `json:"PackageCount"`
+	ProjectRoot  string `json:"projectRoot"`
+	Constraint   string `json:"constraint"`
+	Version      string `json:"version"`
+	Revision     string `json:"revision"`
+	Latest       string `json:"latest"`
+	PackageCount int    `json:"packageCount"`
 }
 
 func parseTemplate(content string) (*Template, error) {
