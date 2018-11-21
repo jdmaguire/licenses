@@ -385,14 +385,14 @@ func findLicense(info *PkgInfo) (string, error) {
 }
 
 type License struct {
-	Package      string     `json:"package"`
-	Score        float64    `json:"score"`
-	Template     *Template  `json:"license,omitempty"`
-	Path         string     `json:"path,omitempty"`
-	Err          string     `json:"error,omitempty"`
-	ExtraWords   []string   `json:"extra_words,omitempty"`
-	MissingWords []string   `json:"missing_words,omitempty"`
-	Versioning   *DepStatus `json:"versioning,omitempty"`
+	Package      string    `json:"package"`
+	Score        float64   `json:"score"`
+	Template     *Template `json:"license,omitempty"`
+	Path         string    `json:"path,omitempty"`
+	Err          string    `json:"error,omitempty"`
+	ExtraWords   []string  `json:"extra_words,omitempty"`
+	MissingWords []string  `json:"missing_words,omitempty"`
+	Versioning   DepStatus `json:"versioning,omitempty"`
 }
 
 func decorateWithVersionInfo(licenses []License, gopath string, pkgs []string) ([]License, error) {
@@ -412,10 +412,10 @@ func decorateWithVersionInfo(licenses []License, gopath string, pkgs []string) (
 				if found > 0 {
 					fmt.Fprintf(os.Stderr, "Found two conflicting license versions for %v. %v & %v\n", license.Package, license.Versioning, versionInfo)
 					if found < len(versionInfo.ProjectRoot) {
-						license.Versioning = &versionInfo
+						license.Versioning = versionInfo
 					}
 				} else {
-					license.Versioning = &versionInfo
+					license.Versioning = versionInfo
 				}
 				found = len(versionInfo.ProjectRoot)
 			}
